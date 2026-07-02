@@ -64,7 +64,7 @@ public:
 
         m_kf = std::make_shared<IESKF>();
         m_builder = std::make_shared<MapBuilder>(m_builder_config, m_kf);
-        m_timer = this->create_wall_timer(20ms, std::bind(&LIONode::timerCB, this));
+        m_timer = this->create_wall_timer(10ms, std::bind(&LIONode::timerCB, this));
     }
 
     void loadParameters()
@@ -196,6 +196,15 @@ public:
         odom.pose.pose.orientation.z = q.z();
         odom.pose.pose.orientation.w = q.w();
 
+        // Extract pose covariance from IESKF (first 6x6 elements of 21x21 matrix)
+        // Position: indices 0,1,2 | Orientation (so(3)): indices 3,4,5
+        const Eigen::Matrix<double, 21, 21>& P = m_kf->P();
+        for (int i = 0; i < 6; ++i) {
+            for (int j = 0; j < 6; ++j) {
+                odom.pose.covariance[i*6 + j] = P(i, j);
+            }
+        }
+
         V3D vel = m_kf->x().r_wi.transpose() * m_kf->x().v;
         odom.twist.twist.linear.x = vel.x();
         odom.twist.twist.linear.y = vel.y();
@@ -257,7 +266,10 @@ public:
         if (m_builder->status() != BuilderStatus::MAPPING)
             return;
 
-        broadCastTF(m_tf_broadcaster, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
+        // TF broadcasting disabled by design — see SPEC 03 Section 2 Unit 1.
+        // FAST-LIO2 publishes odometry topic only; L2 EKF (local_ekf_node) is the
+        // sole authority for odom->base_link TF to ensure 50Hz+ continuous flow.
+        // broadCastTF(m_tf_broadcaster, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
 
         publishOdometry(m_odom_pub, m_node_config.world_frame, m_node_config.body_frame, m_package.cloud_end_time);
 
